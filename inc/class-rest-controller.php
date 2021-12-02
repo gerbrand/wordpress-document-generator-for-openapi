@@ -51,14 +51,31 @@ class RestController {
                                     [ 'status' => 400 ] );
         }
 
+
+
+
         //get wordpress rest schema
         $routes = rest_get_server()->get_routes( $request['namespace'] );
         
         $data = rest_get_server()->get_data_for_routes( $routes, 'help' );
 
-        //generate openapi document
         //TODO create factory for switching between version
-        $generator = new Generator3_1_0( $namespace, $data, $extract_common_types );
+        if ( isset( $request['openapi_version'] ) ) {
+            if ($request['openapi_version'] == Generator3_1_0::openApiVersion) {
+                $generator = new Generator3_1_0($namespace, $data, $extract_common_types);
+            } else if ($request['openapi_version'] == Generator3_0_0::openApiVersion) {
+                $generator = new Generator3_0_0($namespace, $data, $extract_common_types);
+            } else {
+                return new \WP_Error( 'unsupported_openapi_version',
+                    esc_html__(   sprintf('The requested openapi_version is not supported, only %s and %s',Generator3_1_0::openApiVersion,Generator3_0_0::openApiVersion),
+                        'document-generator-for-openapi' ),
+                    [ 'status' => 400 ] );
+            }
+        } else {
+            $generator = new Generator3_1_0($namespace, $data, $extract_common_types);
+        }
+
+        //generate openapi document
         $result = $generator->generateDocument();
         
         return rest_ensure_response($result);

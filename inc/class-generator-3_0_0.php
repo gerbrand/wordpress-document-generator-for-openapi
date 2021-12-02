@@ -2,12 +2,14 @@
 
 namespace OpenAPIGenerator;
 
-class Generator3_1_0 extends GeneratorBase {
-    const openApiVersion = '3.1.0';
+class Generator3_0_0 extends GeneratorBase {
+    const openApiVersion = '3.0.0';
+
+    const supportedOpenApiTypes = ['array', 'boolean', 'integer', 'number', 'object', 'string'];
 
     protected $components = ['schemas' => []];
 
-    public $extractCommonTypes = false;    
+    public $extractCommonTypes = false;
 
     public function __construct( $namespace, $routes, $extractCommonTypes ) {
         parent::__construct($namespace, $routes);
@@ -16,7 +18,7 @@ class Generator3_1_0 extends GeneratorBase {
     }
 
     public function generateDocument() {
-        return apply_filters( 'openapi_generator_v3_1', $this->generateRoot(), $this );
+        return apply_filters( 'openapi_generator_v3_0', $this->generateRoot(), $this );
     }
 
     public function generateRoot () {
@@ -43,14 +45,14 @@ class Generator3_1_0 extends GeneratorBase {
     public function generateInfo() {
         return [
             'title' => $this->namespace,
-            'summary' => esc_html(
-                            sprintf(
-                                esc_html__( 'Generated OpenAPI document of the namespace %s on %s.',
-                                            'document-generator-for-openapi') ,
-                                            $this->namespace,
-                                            get_option( 'blogname' )
-                                )
-                            ),
+            'description' => esc_html(
+                sprintf(
+                    esc_html__( 'Generated OpenAPI document of the namespace %s on %s.',
+                        'document-generator-for-openapi') ,
+                    $this->namespace,
+                    get_option( 'blogname' )
+                )
+            ),
             'version' => '1'
         ];
     }
@@ -72,10 +74,10 @@ class Generator3_1_0 extends GeneratorBase {
             $substitutions = $this->getSubstitutions( $url );
 
             //replace all regex substituions with OpenAPI substitutions
-            $url = preg_replace( '/\(\?P\<(.*?)\>.*?\)(\/|$)/', '{$1}$2', $url ); 
+            $url = preg_replace( '/\(\?P\<(.*?)\>.*?\)(\/|$)/', '{$1}$2', $url );
 
             $name = '';
-            
+
             //try to get a fallback entity name for this path by getting the last part of the url
             //TODO we need to ignore all substitution names
             $matches = [];
@@ -105,7 +107,7 @@ class Generator3_1_0 extends GeneratorBase {
         if ( $found && $found > 0 ) {
             //for each found substituion, store the given regex
             foreach ( $matches as $foundSubstitution ) {
-                $substitutions[$foundSubstitution[1]] = $foundSubstitution[2]; 
+                $substitutions[$foundSubstitution[1]] = $foundSubstitution[2];
             }
         }
 
@@ -113,7 +115,7 @@ class Generator3_1_0 extends GeneratorBase {
     }
 
     public function generatePathItem( $name, $spec, $substitutions ) {
-        
+
         $result = [];
 
         foreach ( $spec['endpoints'] as $endpoint ) {
@@ -123,7 +125,7 @@ class Generator3_1_0 extends GeneratorBase {
 
             //create parameters for all the following methods of this endpoint
             //this means, yes, currently those parameters are duplicated in the OpenAPI document
-            //because we don't use refs yet. 
+            //because we don't use refs yet.
             foreach ( $endpoint['args'] as $argumentName => $argument ) {
                 $paramSchema = $this->generateParameterObject( $argumentName, $argument, $substitutions );
                 $parameters[] = $paramSchema;
@@ -131,7 +133,7 @@ class Generator3_1_0 extends GeneratorBase {
                 //if this is not a path parameter, add it to the content schema
                 if ( !array_key_exists( $argumentName, $substitutions ) ) {
                     $contentProperties[ $argumentName ] = $this->generateSchemaObject( $argument, [
-                        'currentKey' => $argumentName   
+                        'currentKey' => $argumentName
                     ] );
                 } else {
                     $substitutionParameters[] = $paramSchema;
@@ -167,8 +169,8 @@ class Generator3_1_0 extends GeneratorBase {
                             ]
                         ];
                     }
-  
-                    if ( count( $substitutionParameters ) ) {               
+
+                    if ( count( $substitutionParameters ) ) {
                         $method['parameters'] = $substitutionParameters;
                     }
 
@@ -179,7 +181,7 @@ class Generator3_1_0 extends GeneratorBase {
                 //if a schema is defined for the reponse of the current route add it.
                 if ( isset( $spec['schema'] ) && !empty( $spec['schema'] )) {
                     $method['responses']['200']['content'] = $this->generateResponseSchema( $spec['schema'], [
-                        'currentKey' => null   
+                        'currentKey' => null
                     ]);
                 }
 
@@ -193,7 +195,7 @@ class Generator3_1_0 extends GeneratorBase {
 
     public function generateParameterObject( $argumentName, $argument, $substitutions ) {
         $in = array_key_exists( $argumentName, $substitutions ) ? 'path' : 'query';
-        
+
         $result = [
             'name' => $argumentName,
             'in' => $in,
@@ -206,7 +208,7 @@ class Generator3_1_0 extends GeneratorBase {
     }
 
     public function generateResponseSchema( $schema ) {
-                    
+
         $schemaName = $schema['title'];
 
         //add schema to the current schema pool to add it to the components part of the document later on.
@@ -234,18 +236,29 @@ class Generator3_1_0 extends GeneratorBase {
 
                 foreach( $schemaObject['oneOf'] as $type ) {
                     $result['oneOf'][] = $this->generateSchemaObject( $type,
-                                            array_merge( $context, [ 'currentKey' => null ] ) );
+                        array_merge( $context, [ 'currentKey' => null ] ) );
                 }
 
             } else {
-                $result['type'] = $schemaObject['type'];
+                if (is_array( $schemaObject['type'] )) {
+                    $types = array_filter($schemaObject['type'], function ($t) {
+                        return in_array(self::supportedOpenApiTypes, $t); // Filter out types that are not (yet?) supported in openid
+                    });
+                    if (sizeof($types) == 1) {
+                        $result['type'] = reset($types);
+                    } else {
+                        $result['type'] = 'string';
+                    }
+                } else {
+                    $result['type'] = $schemaObject['type'];
+                }
 
                 if ( $schemaObject['type'] === 'object' && isset( $schemaObject['properties'] ) ) {
                     $requiredProperties = [];
 
                     foreach( $schemaObject['properties'] as $key => $parameter) {
                         $result['properties'][$key] = $this->generateSchemaObject( $parameter,
-                                                        array_merge( $context, [ 'currentKey' => $key ] ) );
+                            array_merge( $context, [ 'currentKey' => $key ] ) );
 
                         if ( isset( $schemaObject['properties'][$key]['required'] ) &&
                             $schemaObject['properties'][$key]['required'] === true) {
@@ -283,13 +296,13 @@ class Generator3_1_0 extends GeneratorBase {
         if ( $this->extractCommonTypes &&
             ( ( isset( $result['type'] ) && $result['type'] === 'object' && $context['currentKey'] ) ||
                 ( isset( $result['enum'] ) && is_array( $result['enum'] ) ) ) ) {
-            
+
             $uriKey = $context['currentKey'];
 
             //TODO Improve collission handling
             $i = 1;
             while ( isset(  $this->components['schemas'][$uriKey] ) &&
-                    $this->components['schemas'][$uriKey] !== $result ) {
+                $this->components['schemas'][$uriKey] !== $result ) {
                 $uriKey = $context['currentKey'] . '_' . $i++;
             }
 
